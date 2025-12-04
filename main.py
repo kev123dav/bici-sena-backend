@@ -14,7 +14,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Permitir todo (para pruebas y Flutter/React Native)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,19 +22,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==================== CONEXIÓN A SUPABASE ====================
+# ==================== CONEXIÓN A SUPABASE VIA SUPAVISOR POOLER ====================
 def get_db():
     try:
         conn = psycopg2.connect(
-            os.environ["DATABASE_URL"],   # Render te da esta variable automáticamente
-            sslmode="require"
+            os.environ["DATABASE_URL"],
+            sslmode="require",
+            connect_timeout=10
         )
         conn.autocommit = True
         return conn
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error de base de datos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error de conexión: {str(e)}")
 
-# ==================== MODELOS ====================
 class LoginRequest(BaseModel):
     cedula: str
     contrasena: str
@@ -55,26 +54,21 @@ async def registrar_usuario(
     db = get_db()
     cur = db.cursor()
 
-    # Verificar cédula duplicada
     cur.execute("SELECT 1 FROM usuarios WHERE cedula = %s", (cedula,))
     if cur.fetchone():
         db.close()
         raise HTTPException(status_code=409, detail="Esta cédula ya está registrada")
 
-    # Hashear contraseña
     hashed = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt())
 
-    # Leer fotos
     foto_bici_bytes = await foto_bici.read()
     foto_usuario_bytes = await foto_usuario.read()
 
-    # Generar QR con el código único
     qr = qrcode.make(codigo)
     buffer = BytesIO()
     qr.save(buffer, format="PNG")
     qr_bytes = buffer.getvalue()
 
-    # Guardar todo en la base
     cur.execute("""
         INSERT INTO usuarios 
         (nombre, cedula, telefono, correo, contrasena, codigo, qr_blob, foto_bici_blob, foto_usuario_blob)
@@ -83,7 +77,6 @@ async def registrar_usuario(
 
     db.close()
     return {"mensaje": "¡Usuario registrado exitosamente!", "codigo_qr": codigo}
-
 
 # ==================== LOGIN + DEVOLVER QR ====================
 @app.post("/api/usuario/login")
@@ -112,7 +105,6 @@ def login_usuario(data: LoginRequest):
         "foto_usuario_blob": base64.b64encode(row[5]).decode() if row[5] else None
     }
 
-
 # ==================== ESCANEAR QR (PARA EL VIGILANTE) ====================
 @app.get("/api/usuario/qr/{codigo}")
 def escanear_qr(codigo: str):
@@ -137,7 +129,6 @@ def escanear_qr(codigo: str):
         "foto_usuario_blob": base64.b64encode(row[4]).decode(),
     }
 
-
 # ==================== REGISTRAR ENTRADA O SALIDA ====================
 @app.post("/api/registro/{codigo}/{accion}")
 def registrar_movimiento(codigo: str, accion: str):
@@ -158,7 +149,6 @@ def registrar_movimiento(codigo: str, accion: str):
     db.close()
 
     return {"mensaje": f"¡{accion} registrada correctamente!"}
-
 
 # ==================== RUTAS DE PRUEBA ====================
 @app.get("/")
