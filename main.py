@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, status_code
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -27,7 +27,7 @@ app.add_middleware(
 
 # ==================== CONEXIÓN A BD ====================
 def get_db():
-    if os.getenv("DATABASE_URL"):  # Render + Supabase
+    if os.getenv("DATABASE_URL"):  # Render + Supabase (PostgreSQL)
         url = urlparse(os.getenv("DATABASE_URL"))
         conn = psycopg2.connect(
             database=url.path[1:],
@@ -38,7 +38,7 @@ def get_db():
         )
         conn.autocommit = True
         return conn
-    else:  # Local MySQL
+    else:  # Local MySQL (para pruebas en tu PC)
         if not mysql:
             raise Exception("Instala mysql-connector-python para pruebas locales")
         return mysql.connector.connect(
@@ -69,8 +69,9 @@ async def registrar(
 
     cursor.execute("SELECT cedula FROM usuarios WHERE cedula = %s", (cedula,))
     if cursor.fetchone():
+        cursor.close()
         db.close()
-        raise HTTPException617, "Cédula ya registrada"
+        raise HTTPException(status_code=400, detail="Cédula ya registrada")
 
     hashed = bcrypt.hashpw(contrasena.encode(), bcrypt.gensalt()).decode()
     foto_bici_b = await foto_bici.read()
@@ -82,8 +83,9 @@ async def registrar(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """, (nombre, cedula, telefono, correo, hashed, codigo, foto_bici_b, foto_usuario_b))
 
+    cursor.close()
     db.close()
-    return {"mensaje": "¡Registrado con éxito!"}
+    return {"mensaje": "¡Usuario registrado con éxito!"}
 
 # ==================== LOGIN + QR ====================
 @app.post("/api/usuario/login")
@@ -92,6 +94,7 @@ def login(data: Login):
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM usuarios WHERE cedula = %s", (data.cedula,))
     user = cursor.fetchone()
+    cursor.close()
     db.close()
 
     if user and bcrypt.checkpw(data.contrasena.encode(), user["contrasena"].encode()):
@@ -103,12 +106,14 @@ def login(data: Login):
         return {
             "nombre": user["nombre"],
             "cedula": user["cedula"],
+            "telefono": user["telefono"],
+            "correo": user["correo"],
             "codigo": user["codigo"],
             "qr_blob": qr_b64,
             "foto_bici_blob": base64.b64encode(user["foto_bici_blob"]).decode() if user["foto_bici_blob"] else None,
             "foto_usuario_blob": base64.b64encode(user["foto_usuario_blob"]).decode() if user["foto_usuario_blob"] else None
         }
-    raise HTTPException(401, "Credenciales inválidas")
+    raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
 # ==================== ESCANEAR QR (VIGILANTE) ====================
 @app.get("/api/usuario/qr/{codigo}")
@@ -117,15 +122,17 @@ def escanear_qr(codigo: str):
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM usuarios WHERE codigo = %s", (codigo,))
     user = cursor.fetchone()
+    cursor.close()
     db.close()
 
     if not user:
-        raise HTTPException(404, "Usuario no encontrado")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     return {
         "nombre": user["nombre"],
         "cedula": user["cedula"],
         "telefono": user["telefono"],
+        "correo": user["correo"],
         "codigo": user["codigo"],
         "foto_bici_blob": base64.b64encode(user["foto_bici_blob"]).decode(),
         "foto_usuario_blob": base64.b64encode(user["foto_usuario_blob"]).decode(),
@@ -135,7 +142,7 @@ def escanear_qr(codigo: str):
 @app.post("/api/registro/{codigo}/{accion}")
 def registrar_movimiento(codigo: str, accion: str):
     if accion not in ["Entrada", "Salida"]:
-        raise HTTPException(400, "Acción inválida")
+        raise HTTPException(status_code=400, detail="Acción inválida")
 
     db = get_db()
     cursor = db.cursor(dictionary=True)
@@ -143,17 +150,20 @@ def registrar_movimiento(codigo: str, accion: str):
     usuario = cursor.fetchone()
 
     if not usuario:
+        cursor.close()
         db.close()
-        raise HTTPException(404, "Usuario no encontrado")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     cursor.execute("INSERT INTO registros (usuario_id, accion) VALUES (%s, %s)", (usuario["id"], accion))
+    cursor.close()
     db.close()
-    return {"mensaje": f"¡{accion} registrada!"}
+    return {"mensaje": f"¡{accion} registrada con éxito!"}
 
+# ==================== RUTAS DE SALUD ====================
 @app.get("/health")
 def health():
-    return {"status": "ok", "backend": "BiciSENA Global con Supabase"}
+    return {"status": "ok", "message": "BiciSENA Backend 100% operativo en la nube con Supabase"}
 
 @app.get("/")
 def root():
-    return {"message": "BiciSENA API - 100% en la nube y listo para mañana"}
+    return {"message": "BiciSENA API - Todo en la nube y funcionando como campeón"}
