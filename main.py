@@ -28,7 +28,7 @@ app.add_middleware(
 # ==================== CONEXIÓN A BD ====================
 def get_db():
     if os.getenv("DATABASE_URL"):  # Render + Supabase
-        url = urlparse(os.getenv("DATABASE_URL"))
+        url = urlparse(os.getenv("postgresql://postgres:Vy%hpyuD?*Gt3qx@db.saqqvvsowzjctxtqdiyip.supabase.co:5432/postgres"))
         conn = psycopg2.connect(
             database=url.path[1:],
             user=url.username,
@@ -157,3 +157,4 @@ def health():
 @app.get("/")
 def root():
     return {"message": "BiciSENA API - 100% funcional"}
+
