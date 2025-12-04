@@ -1,21 +1,13 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os
-import psycopg2
-from urllib.parse import urlparse
+import mysql.connector
 import bcrypt
 import qrcode
 from io import BytesIO
 import base64
 
-# Para pruebas locales con MySQL (opcional)
-try:
-    import mysql.connector
-except ImportError:
-    mysql = None
-
-app = FastAPI(title="BiciSENA - Backend Global")
+app = FastAPI(title="BiciSENA - Backend MySQL")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,34 +17,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==================== CONEXIÓN A BD ====================
+# =============== CONEXIÓN MYSQL LOCAL ===============
 def get_db():
-    if os.getenv("DATABASE_URL"):  # Render + Supabase
-        url = urlparse(os.getenv("DATABASE_URL"))
-        conn = psycopg2.connect(
-            database=url.path[1:],
-            user=url.username,
-            password=url.password,
-            host=url.hostname,
-            port=url.port or 5432
-        )
-        conn.autocommit = True
-        return conn
-    else:  # Local MySQL
-        if not mysql:
-            raise Exception("Instala mysql-connector-python para pruebas locales")
-        return mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="Sena2025!F3QL",
-            database="bicisena"
-        )
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="Sena2025!F3QL",   # ← TU CONTRASEÑA LOCAL
+        database="bicisena"
+    )
 
 class Login(BaseModel):
     cedula: str
     contrasena: str
 
-# ==================== REGISTRO ====================
+# =============== REGISTRO ===============
 @app.post("/api/usuario/registrar")
 async def registrar(
     nombre: str = Form(...),
@@ -69,7 +47,6 @@ async def registrar(
 
     cursor.execute("SELECT cedula FROM usuarios WHERE cedula = %s", (cedula,))
     if cursor.fetchone():
-        cursor.close()
         db.close()
         raise HTTPException(400, detail="Cédula ya registrada")
 
@@ -82,19 +59,18 @@ async def registrar(
         (nombre, cedula, telefono, correo, contrasena, codigo, foto_bici_blob, foto_usuario_blob)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """, (nombre, cedula, telefono, correo, hashed, codigo, foto_bici_b, foto_usuario_b))
-
-    cursor.close()
+    
+    db.commit()
     db.close()
     return {"mensaje": "¡Usuario registrado con éxito!"}
 
-# ==================== LOGIN + QR ====================
+# =============== LOGIN + QR ===============
 @app.post("/api/usuario/login")
 def login(data: Login):
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM usuarios WHERE cedula = %s", (data.cedula,))
     user = cursor.fetchone()
-    cursor.close()
     db.close()
 
     if user and bcrypt.checkpw(data.contrasena.encode(), user["contrasena"].encode()):
@@ -106,8 +82,6 @@ def login(data: Login):
         return {
             "nombre": user["nombre"],
             "cedula": user["cedula"],
-            "telefono": user["telefono"],
-            "correo": user["correo"],
             "codigo": user["codigo"],
             "qr_blob": qr_b64,
             "foto_bici_blob": base64.b64encode(user["foto_bici_blob"]).decode() if user["foto_bici_blob"] else None,
@@ -115,14 +89,13 @@ def login(data: Login):
         }
     raise HTTPException(401, detail="Credenciales inválidas")
 
-# ==================== ESCANEAR QR (VIGILANTE) ====================
+# =============== ESCANEAR QR ===============
 @app.get("/api/usuario/qr/{codigo}")
 def escanear_qr(codigo: str):
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM usuarios WHERE codigo = %s", (codigo,))
     user = cursor.fetchone()
-    cursor.close()
     db.close()
 
     if not user:
@@ -132,13 +105,12 @@ def escanear_qr(codigo: str):
         "nombre": user["nombre"],
         "cedula": user["cedula"],
         "telefono": user["telefono"],
-        "correo": user["correo"],
         "codigo": user["codigo"],
         "foto_bici_blob": base64.b64encode(user["foto_bici_blob"]).decode(),
         "foto_usuario_blob": base64.b64encode(user["foto_usuario_blob"]).decode(),
     }
 
-# ==================== REGISTRAR ENTRADA/SALIDA ====================
+# =============== REGISTRO ENTRADA/SALIDA ===============
 @app.post("/api/registro/{codigo}/{accion}")
 def registrar_movimiento(codigo: str, accion: str):
     if accion not in ["Entrada", "Salida"]:
@@ -148,22 +120,20 @@ def registrar_movimiento(codigo: str, accion: str):
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT id FROM usuarios WHERE codigo = %s", (codigo,))
     usuario = cursor.fetchone()
-
     if not usuario:
-        cursor.close()
         db.close()
         raise HTTPException(404, detail="Usuario no encontrado")
 
     cursor.execute("INSERT INTO registros (usuario_id, accion) VALUES (%s, %s)", (usuario["id"], accion))
-    cursor.close()
+    db.commit()
     db.close()
-    return {"mensaje": f"¡{accion} registrada con éxito!"}
+    return {"mensaje": f"¡{accion} registrada!"}
 
-# ==================== SALUD ====================
+# =============== SALUD ===============
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "BiciSENA Backend 100% en la nube con Supabase"}
+    return {"status": "ok", "backend": "BiciSENA MySQL Local"}
 
 @app.get("/")
 def root():
-    return {"message": "BiciSENA API - Todo en la nube y listo para romperla mañana"}
+    return {"message": "BiciSENA API MySQL - Todo funcionando perfecto"}
