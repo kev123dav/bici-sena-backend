@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, status_code
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -27,7 +27,7 @@ app.add_middleware(
 
 # ==================== CONEXIÓN A BD ====================
 def get_db():
-    if os.getenv("DATABASE_URL"):  # Render + Supabase (PostgreSQL)
+    if os.getenv("DATABASE_URL"):  # Render + Supabase
         url = urlparse(os.getenv("DATABASE_URL"))
         conn = psycopg2.connect(
             database=url.path[1:],
@@ -38,7 +38,7 @@ def get_db():
         )
         conn.autocommit = True
         return conn
-    else:  # Local MySQL (para pruebas en tu PC)
+    else:  # Local MySQL
         if not mysql:
             raise Exception("Instala mysql-connector-python para pruebas locales")
         return mysql.connector.connect(
@@ -71,7 +71,7 @@ async def registrar(
     if cursor.fetchone():
         cursor.close()
         db.close()
-        raise HTTPException(status_code=400, detail="Cédula ya registrada")
+        raise HTTPException(400, detail="Cédula ya registrada")
 
     hashed = bcrypt.hashpw(contrasena.encode(), bcrypt.gensalt()).decode()
     foto_bici_b = await foto_bici.read()
@@ -113,7 +113,7 @@ def login(data: Login):
             "foto_bici_blob": base64.b64encode(user["foto_bici_blob"]).decode() if user["foto_bici_blob"] else None,
             "foto_usuario_blob": base64.b64encode(user["foto_usuario_blob"]).decode() if user["foto_usuario_blob"] else None
         }
-    raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    raise HTTPException(401, detail="Credenciales inválidas")
 
 # ==================== ESCANEAR QR (VIGILANTE) ====================
 @app.get("/api/usuario/qr/{codigo}")
@@ -126,7 +126,7 @@ def escanear_qr(codigo: str):
     db.close()
 
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     return {
         "nombre": user["nombre"],
@@ -142,7 +142,7 @@ def escanear_qr(codigo: str):
 @app.post("/api/registro/{codigo}/{accion}")
 def registrar_movimiento(codigo: str, accion: str):
     if accion not in ["Entrada", "Salida"]:
-        raise HTTPException(status_code=400, detail="Acción inválida")
+        raise HTTPException(400, detail="Acción inválida")
 
     db = get_db()
     cursor = db.cursor(dictionary=True)
@@ -152,18 +152,18 @@ def registrar_movimiento(codigo: str, accion: str):
     if not usuario:
         cursor.close()
         db.close()
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     cursor.execute("INSERT INTO registros (usuario_id, accion) VALUES (%s, %s)", (usuario["id"], accion))
     cursor.close()
     db.close()
     return {"mensaje": f"¡{accion} registrada con éxito!"}
 
-# ==================== RUTAS DE SALUD ====================
+# ==================== SALUD ====================
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "BiciSENA Backend 100% operativo en la nube con Supabase"}
+    return {"status": "ok", "message": "BiciSENA Backend 100% en la nube con Supabase"}
 
 @app.get("/")
 def root():
-    return {"message": "BiciSENA API - Todo en la nube y funcionando como campeón"}
+    return {"message": "BiciSENA API - Todo en la nube y listo para romperla mañana"}
